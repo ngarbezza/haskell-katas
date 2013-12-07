@@ -1,131 +1,147 @@
 import Test.Hspec
 
-data TennisGame = TG [Point] deriving Show
-data TennisSet = TS [TennisGame] deriving Show
-type Player = String
-data Point = PT Player deriving (Show, Eq)
 data TennisMatch = TM Player Player TennisSet deriving Show
+type Player = String
+data TennisSet = TS [TennisGame] deriving Show
+data TennisGame = TG [Point] deriving Show
+data Point = PT Player deriving (Show, Eq)
+data PointName = Zero | Fifteen | Thirty | Forty | Advantage | Game deriving Eq
+data GameScore = GS PointName PointName
 
-game = gameBetween vilas clerc
+instance Show PointName where
+  show Zero      = "0"
+  show Fifteen   = "15"
+  show Thirty    = "30"
+  show Forty     = "40"
+  show Advantage = "Ad"
+  show Game      = "0"
 
 gameBetween player1 player2 = TM player1 player2 newSet
+playingAgainst = gameBetween
 newSet  = TS [newGame]
 newGame = TG []
 
-pointsPlayer1 (TM p1 _ (TS ((TG points):otherGames))) =
-  let (p1p, p2p) = pointsOf p1 points in p1p
+pointsPlayer1 (TM player1 _ (TS (currentGame : _))) =
+  myScore $ pointsOf player1 currentGame
 
-pointsPlayer2 (TM _ p2 (TS ((TG points):otherGames))) =
-  let (p2p, p1p) = pointsOf p2 points in p2p
+pointsPlayer2 (TM _ player2 (TS (currentGame : _))) =
+  myScore $ pointsOf player2 currentGame
 
-pointsOf player [] = ("0", "0")
-pointsOf player (point:points) =
-  if point `wonBy` player
-    then pointWonIn  (pointsOf player points)
-    else pointLostIn (pointsOf player points)
+myScore (GS score _) = score
+
+pointsOf player (TG []) = GS Zero Zero
+pointsOf player (TG (point : points)) =
+  let previousScore = pointsOf player (TG points)
+  in if point `wonBy` player
+       then pointWonIn  previousScore
+       else pointLostIn previousScore
 
 wonBy (PT pointPlayer) player = player == pointPlayer
 
-pointWonIn ("40", "40") = ("Ad", "40")
-pointWonIn ("Ad", "40") = ("G", "40")
-pointWonIn ("40", "Ad") = ("40", "40")
-pointWonIn (p1, p2) = ((nextPoint p1), p2)
+pointWonIn (GS Forty Forty)     = GS Advantage Forty
+pointWonIn (GS Advantage Forty) = GS Game Forty
+pointWonIn (GS Forty Advantage) = GS Forty Forty
+pointWonIn (GS score1 score2)   = GS (nextPoint score1) score2
 
-pointLostIn ("40", "40") = ("40", "Ad")
-pointLostIn ("Ad", "40") = ("40", "40")
-pointLostIn ("40", "Ad") = ("40", "G")
-pointLostIn (p1, p2) = (p1, (nextPoint p2))
+pointLostIn (GS Forty Forty)     = GS Forty Advantage
+pointLostIn (GS Advantage Forty) = GS Forty Forty
+pointLostIn (GS Forty Advantage) = GS Forty Game
+pointLostIn (GS score1 score2)   = GS score1 (nextPoint score2)
 
-pointFor player = PT player
+pointBy player = PT player
 
-gamesPlayer1 (TM _ _ _) = 1
-gamesPlayer2 (TM _ _ _) = 0
+gamesPlayer1 (TM player1 _ (TS games)) = length $ filter (wonGame player1) games
+gamesPlayer2 (TM _ player2 (TS games)) = length $ filter (wonGame player2) games
 
-pointToPlayer1 (TM p1 p2 (TS (currentGame@(TG ps):otherGames))) =
-  let gameAfterPoint = TG ((pointFor p1) : ps)
-  in if p1 `wonGame` gameAfterPoint
-      then TM p1 p2 (TS (newGame : (gameAfterPoint : otherGames)))
-      else TM p1 p2 (TS ((TG ((pointFor p1) : ps)):otherGames))
+pointToPlayer1 match@(TM player1 player2 _) = pointTo player1 match
+pointToPlayer2 match@(TM player1 player2 _) = pointTo player2 match
 
-pointToPlayer2 (TM p1 p2 (TS ((TG ps):otherGames))) =
-  TM p1 p2 (TS ((TG ((pointFor p2) : ps)):otherGames))
+pointTo player (TM player1 player2 (TS ((TG points) : otherGames))) =
+  let gameAfterPoint = TG ((pointBy player) : points)
+  in if player `wonGame` gameAfterPoint
+      then TM player1 player2 (TS (newGame : gameAfterPoint : otherGames))
+      else TM player1 player2 (TS (gameAfterPoint : otherGames))
 
-wonGame player (TG points) =
-  let (myPoints, _) = pointsOf player points
-  in myPoints == "G"
+wonGame player game = (myScore $ pointsOf player game) == Game
 
-currentGameHistory (TM _ _ (TS (currentGame:otherGames))) =
-  gameHistory currentGame
+currentGameHistory (TM _ _ (TS (game : games))) = gameHistory game
 
 gameHistory (TG points) = reverse points
 
-nextPoint "0"  = "15"
-nextPoint "15" = "30"
-nextPoint "30" = "40"
-nextPoint "40" = "G"
+nextPoint Zero    = Fifteen
+nextPoint Fifteen = Thirty
+nextPoint Thirty  = Forty
+nextPoint Forty   = Game
 
-score_15_0  = pointToPlayer1 game
-score_0_15  = pointToPlayer2 game
+vilasVsClerc = vilas `playingAgainst` clerc
+vilas = "Vilas"
+clerc = "Clerc"
+
+score_15_0  = pointToPlayer1 vilasVsClerc
+score_0_15  = pointToPlayer2 vilasVsClerc
 score_15_15 = pointToPlayer1 score_0_15
 score_30_15 = pointToPlayer1 score_15_15
 score_30_30 = pointToPlayer2 score_30_15
 score_40_30 = pointToPlayer1 score_30_30
 score_40_40 = pointToPlayer2 score_40_30
 score_ad_40 = pointToPlayer1 score_40_40
-
-vilas = "Vilas"
-clerc = "Clerc"
+score_0_40  = pointToPlayer2 $ pointToPlayer2 $ pointToPlayer2 $ vilasVsClerc
 
 main = hspec $ do
 
   describe "basic game logic" $ do
 
     it "returns a 0-0 score for a started game" $ do
-      pointsPlayer1 game `shouldBe` "0"
-      pointsPlayer2 game `shouldBe` "0"
-      putStrLn (show score_ad_40)
+      pointsPlayer1 vilasVsClerc `shouldBe` Zero
+      pointsPlayer2 vilasVsClerc `shouldBe` Zero
 
     it "returns a 15-0 score if the first player scores" $ do
-      pointsPlayer1 score_15_0 `shouldBe` "15"
-      pointsPlayer2 score_15_0 `shouldBe` "0"
+      pointsPlayer1 score_15_0 `shouldBe` Fifteen
+      pointsPlayer2 score_15_0 `shouldBe` Zero
 
     it "returns a 0-15 score if the second player scores" $ do
-      pointsPlayer1 score_0_15 `shouldBe` "0"
-      pointsPlayer2 score_0_15 `shouldBe` "15"
+      pointsPlayer1 score_0_15 `shouldBe` Zero
+      pointsPlayer2 score_0_15 `shouldBe` Fifteen
 
     it "returns a 15-15 score if both players score" $ do
-      pointsPlayer1 score_15_15 `shouldBe` "15"
-      pointsPlayer2 score_15_15 `shouldBe` "15"
+      pointsPlayer1 score_15_15 `shouldBe` Fifteen
+      pointsPlayer2 score_15_15 `shouldBe` Fifteen
 
     it "returns a 30-15 score when player1 scores twice, and player2 once" $ do
-      pointsPlayer1 score_30_15 `shouldBe` "30"
-      pointsPlayer2 score_30_15 `shouldBe` "15"
+      pointsPlayer1 score_30_15 `shouldBe` Thirty
+      pointsPlayer2 score_30_15 `shouldBe` Fifteen
 
     it "returns a 40-40 score when both players score 3 times" $ do
-      pointsPlayer1 score_40_40 `shouldBe` "40"
-      pointsPlayer2 score_40_40 `shouldBe` "40"
+      pointsPlayer1 score_40_40 `shouldBe` Forty
+      pointsPlayer2 score_40_40 `shouldBe` Forty
 
     it "returns a Ad-40 score when player1 scores after a 40-40" $ do
-      pointsPlayer1 score_ad_40 `shouldBe` "Ad"
-      pointsPlayer2 score_ad_40 `shouldBe` "40"
+      pointsPlayer1 score_ad_40 `shouldBe` Advantage
+      pointsPlayer2 score_ad_40 `shouldBe` Forty
 
     it "goes back to 40-40 when player2 scores after a Ad-40" $ do
-      pointsPlayer1 (pointToPlayer2 score_ad_40) `shouldBe` "40"
-      pointsPlayer2 (pointToPlayer2 score_ad_40) `shouldBe` "40"
+      pointsPlayer1 (pointToPlayer2 score_ad_40) `shouldBe` Forty
+      pointsPlayer2 (pointToPlayer2 score_ad_40) `shouldBe` Forty
 
     it "completes a game and reset points to zero if player 1 scores 4 times" $ do
       gamesPlayer1 (pointToPlayer1 score_40_30) `shouldBe` 1
       gamesPlayer2 (pointToPlayer1 score_40_30) `shouldBe` 0
-      pointsPlayer1 (pointToPlayer1 score_40_30) `shouldBe` "0"
-      pointsPlayer2 (pointToPlayer1 score_40_30) `shouldBe` "0"
+      pointsPlayer1 (pointToPlayer1 score_40_30) `shouldBe` Zero
+      pointsPlayer2 (pointToPlayer1 score_40_30) `shouldBe` Zero
+
+    it "completes a game and reset points to zero if player 2 scores 4 times" $ do
+      gamesPlayer1 (pointToPlayer2 score_0_40) `shouldBe` 0
+      gamesPlayer2 (pointToPlayer2 score_0_40) `shouldBe` 1
+      pointsPlayer1 (pointToPlayer2 score_0_40) `shouldBe` Zero
+      pointsPlayer2 (pointToPlayer2 score_0_40) `shouldBe` Zero
 
   describe "games history" $ do
 
     it "returns the game history for a 0-0" $ do
-      currentGameHistory game `shouldBe` ([] :: [Point])
+      currentGameHistory vilasVsClerc `shouldBe` ([] :: [Point])
 
     it "returns the game history for a 15-0" $ do
-      currentGameHistory score_15_0 `shouldBe` [pointFor vilas]
+      currentGameHistory score_15_0 `shouldBe` [pointBy vilas]
 
     it "returns the game history for a 15-15, second player scored first" $ do
-      currentGameHistory score_15_15 `shouldBe` [pointFor clerc, pointFor vilas]
+      currentGameHistory score_15_15 `shouldBe` [pointBy clerc, pointBy vilas]
