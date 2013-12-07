@@ -1,6 +1,6 @@
 import Test.Hspec
 
-data TennisMatch = TM Player Player TennisSet deriving Show
+data TennisMatch = TM Player Player [TennisSet] deriving Show
 type Player = String
 data TennisSet = TS [TennisGame] deriving Show
 data TennisGame = TG [Point] deriving Show
@@ -16,15 +16,15 @@ instance Show PointName where
   show Advantage = "Ad"
   show Game      = "0"
 
-gameBetween player1 player2 = TM player1 player2 newSet
+gameBetween player1 player2 = TM player1 player2 [newSet]
 playingAgainst = gameBetween
 newSet  = TS [newGame]
 newGame = TG []
 
-pointsPlayer1 (TM player1 _ (TS (currentGame : _))) =
+pointsPlayer1 (TM player1 _ ((TS (currentGame : _)) : _)) =
   myScore $ pointsOf player1 currentGame
 
-pointsPlayer2 (TM _ player2 (TS (currentGame : _))) =
+pointsPlayer2 (TM _ player2 ((TS (currentGame : _)) : _)) =
   myScore $ pointsOf player2 currentGame
 
 myScore (GS score _) = score
@@ -50,21 +50,31 @@ pointLostIn (GS score1 score2)   = GS score1 (nextPoint score2)
 
 pointBy player = PT player
 
-gamesPlayer1 (TM player1 _ (TS games)) = length $ filter (wonGame player1) games
-gamesPlayer2 (TM _ player2 (TS games)) = length $ filter (wonGame player2) games
+gamesPlayer1 (TM player1 _ ((TS games) : _)) =
+  length $ filter (wonGame player1) games
+gamesPlayer2 (TM _ player2 ((TS games) : _)) =
+  length $ filter (wonGame player2) games
+
+setsPlayer1 (TM player1 _ sets) = length $ filter (wonSet player1) sets
+setsPlayer2 (TM _ player2 sets) = length $ filter (wonSet player2) sets
 
 pointToPlayer1 match@(TM player1 player2 _) = pointTo player1 match
 pointToPlayer2 match@(TM player1 player2 _) = pointTo player2 match
 
-pointTo player (TM player1 player2 (TS ((TG points) : otherGames))) =
+pointTo player (TM player1 player2 ((TS ((TG points) : games)) : sets)) =
   let gameAfterPoint = TG ((pointBy player) : points)
   in if player `wonGame` gameAfterPoint
-      then TM player1 player2 (TS (newGame : gameAfterPoint : otherGames))
-      else TM player1 player2 (TS (gameAfterPoint : otherGames))
+       then let setAfterPoint = TS (gameAfterPoint : games)
+            in if player `wonSet` setAfterPoint
+                 then TM player1 player2 (newSet : setAfterPoint : sets)
+                 else TM player1 player2 ((TS (newGame : gameAfterPoint : games)) : sets)
+       else TM player1 player2 ((TS (gameAfterPoint : games)) : sets)
 
 wonGame player game = (myScore $ pointsOf player game) == Game
 
-currentGameHistory (TM _ _ (TS (game : games))) = gameHistory game
+wonSet player (TS games) = (length $ filter (wonGame player) games) == 6
+
+currentGameHistory (TM _ _ ((TS (game : _)) : _)) = gameHistory game
 
 gameHistory (TG points) = reverse points
 
@@ -124,24 +134,45 @@ main = hspec $ do
       pointsPlayer2 (pointToPlayer2 score_ad_40) `shouldBe` Forty
 
     it "completes a game and reset points to zero if player 1 scores 4 times" $ do
-      gamesPlayer1 (pointToPlayer1 score_40_30) `shouldBe` 1
-      gamesPlayer2 (pointToPlayer1 score_40_30) `shouldBe` 0
-      pointsPlayer1 (pointToPlayer1 score_40_30) `shouldBe` Zero
-      pointsPlayer2 (pointToPlayer1 score_40_30) `shouldBe` Zero
+      let gameAfterPoint = pointToPlayer1 score_40_30
+      gamesPlayer1 gameAfterPoint `shouldBe` 1
+      gamesPlayer2 gameAfterPoint `shouldBe` 0
+      pointsPlayer1 gameAfterPoint `shouldBe` Zero
+      pointsPlayer2 gameAfterPoint `shouldBe` Zero
 
     it "completes a game and reset points to zero if player 2 scores 4 times" $ do
-      gamesPlayer1 (pointToPlayer2 score_0_40) `shouldBe` 0
-      gamesPlayer2 (pointToPlayer2 score_0_40) `shouldBe` 1
-      pointsPlayer1 (pointToPlayer2 score_0_40) `shouldBe` Zero
-      pointsPlayer2 (pointToPlayer2 score_0_40) `shouldBe` Zero
+      let gameAfterPoint = pointToPlayer2 score_0_40
+      gamesPlayer1 gameAfterPoint `shouldBe` 0
+      gamesPlayer2 gameAfterPoint `shouldBe` 1
+      pointsPlayer1 gameAfterPoint `shouldBe` Zero
+      pointsPlayer2 gameAfterPoint `shouldBe` Zero
 
-  describe "games history" $ do
+  describe "points history" $ do
 
-    it "returns the game history for a 0-0" $ do
+    it "returns the points history for a 0-0" $ do
       currentGameHistory vilasVsClerc `shouldBe` ([] :: [Point])
 
-    it "returns the game history for a 15-0" $ do
+    it "returns the points history for a 15-0" $ do
       currentGameHistory score_15_0 `shouldBe` [pointBy vilas]
 
-    it "returns the game history for a 15-15, second player scored first" $ do
+    it "returns the points history for a 15-15, second player scored first" $ do
       currentGameHistory score_15_15 `shouldBe` [pointBy clerc, pointBy vilas]
+
+  describe "basic sets logic" $ do
+
+    it "completes a set if player 1 win 6 consecutive games, reseting games" $ do
+      let setWonByVilas = iterate pointToPlayer1 vilasVsClerc !! 24
+      setsPlayer1 setWonByVilas `shouldBe` 1
+      setsPlayer2 setWonByVilas `shouldBe` 0
+      gamesPlayer1 setWonByVilas `shouldBe` 0
+      gamesPlayer2 setWonByVilas `shouldBe` 0
+      pointsPlayer1 setWonByVilas `shouldBe` Zero
+      pointsPlayer2 setWonByVilas `shouldBe` Zero
+
+    it "completes two sets for each player" $ do
+      let firstSetWonByVilas = iterate pointToPlayer1 vilasVsClerc !! 24
+      let secondSetWonByClerc = iterate pointToPlayer2 firstSetWonByVilas !! 24
+      let thirdSetWonByVilas = iterate pointToPlayer1 secondSetWonByClerc !! 24
+      let fourthSetWonByClerc = iterate pointToPlayer2 thirdSetWonByVilas !! 24
+      setsPlayer1 fourthSetWonByClerc `shouldBe` 2
+      setsPlayer2 fourthSetWonByClerc `shouldBe` 2
